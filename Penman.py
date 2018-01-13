@@ -19,21 +19,60 @@ import math
 # from mpl_toolkits.basemap import Basemap
 # from mpl_toolkits.basemap import interp
 from scipy import interpolate
-import pyKriging
-from pyKriging.krige import kriging
-from pyKriging.samplingplan import samplingplan
+import pandas as pd
+# import pyKriging
+# from pyKriging.krige import kriging
+# from pyKriging.samplingplan import samplingplan
 
 
-def func1(x, y):
-    return (x+y) * np.exp(-5.0 * (x**2 + y**2))
+def Write2CSV(tmp_path, longs, lats, r_value):
+    # 把数据写入到CSV中，以逗号分隔
+    tmp_CSV_file_name = os.path.join(tmp_path, "test_inter.csv")
+    dataframe = pd.DataFrame({'longs': longs, 'lats': lats, 'r_value': r_value})
+    dataframe.to_csv(tmp_CSV_file_name, columns=('longs', 'lats', 'r_value'), index=False, sep=',')
 
 
-def func2(x, y, z):
-    # fvals = func1(x, y, z)
-    return interpolate.interp2d(x, y, z, kind='cubic')
+def save(filename, contents):
+    # vrt写入
+    fh = open(filename, 'w')
+    fh.write(contents)
+    fh.close()
 
 
-def interpolation(longs, lats, r_value):
+def Reed_CSV(tmp_path):
+    tmp_CSV_file_name = os.path.join(tmp_path, "test_inter.csv")
+    ogr.UseExceptions()
+    X_name = "longs"
+    Y_name = "lats"
+    Z_name = "r_value"
+    contents = "<OGRVRTDataSource> <OGRVRTLayer name=\"test_inter\"> <SrcDataSource>%s</SrcDataSource> <SrcLayer>test_inter</SrcLayer> <GeometryType>wkbPoint</GeometryType> <LayerSRS>WGS84</LayerSRS> <GeometryField encoding=\"PointFromColumns\" x=\"%s\" y=\"%s\" z=\"%s\" /> </OGRVRTLayer> </OGRVRTDataSource>" % (tmp_CSV_file_name, X_name, Y_name, Z_name)
+    filename = os.path.join(tmp_path, "test_inter.vrt")
+    save(filename, contents)
+
+
+def interpolation(shp_path, out_path, tmp_path, longs, lats, r_value):
+    Write2CSV(tmp_path, longs, lats, r_value)
+    Reed_CSV(tmp_path)
+    xnew = [105.487122, 111.241882]
+    ynew = [31.706726, 39.585327]
+
+    filename = os.path.join(tmp_path, "test_inter.vrt")
+    tmp_path_file_aaa = os.path.join(tmp_path, "aaa_test.tif")
+    cutrst = gdal.Grid(destName=tmp_path_file_aaa, srcDS=filename, format='GTiff', width=300, height=500,
+                       outputBounds=[xnew[0], ynew[1], xnew[1], ynew[0]], outputSRS="WGS84", noData=-100,
+                       algorithm="invdist")
+    cutrst.FlushCache()
+    cutrst = None
+    print("Invdist OK!")
+    gdal.Warp(out_path, tmp_path_file_aaa, cutlineDSName=shp_path, dstNodata=-99,
+              cropToCutline=True, dstSRS="WGS84")
+    # os.remove(tmp_path_file_aaa)
+    # os.remove(filename)
+
+    print("Mask OK!")
+
+
+def interpolation1(longs, lats, r_value):
     '''
     map = Basemap(projection='merc', llcrnrlat=33.69610595700004, urcrnrlat=34.74407959000006,
                    llcrnrlon=107.65850830100004, urcrnrlon=109.82287597700008, lat_ts=20, resolution='c')
@@ -484,11 +523,14 @@ def main(path, shp_path, out_path, tmp_path, start_time, end_time):
     longs, lats, r_value = calcR(code, lon, lat, time_data, tem_mean, prp_sum, sun_sum, wind, rehum, p_mean, start_time, end_time)
 
     # 插值操作与临时保存
-    r_new, GeoTransform, xy_number = interpolation(longs, lats, r_value)
-
-    # 定义投影、裁剪与保存
-    DefinePrj_TmpOut(r_new, GeoTransform, xy_number, tmp_path)
-    Mask(shp_path, out_path, tmp_path)
+    interpolation(shp_path, out_path, tmp_path, longs, lats, r_value)
+    # r_new, GeoTransform, xy_number = interpolation(longs, lats, r_value)
+    # print ("60%")
+    # # 定义投影、裁剪与保存
+    # DefinePrj_TmpOut(r_new, GeoTransform, xy_number, tmp_path)
+    # print ("80%")
+    # Mask(shp_path, out_path, tmp_path)
+    # print ("100%")
 
 
     return
@@ -498,7 +540,7 @@ if __name__ == '__main__':
     shp_path = "/Users/shuailee/Documents/Climate/Example/Boundary/shaanxi.shp"
     out_path = "/Users/shuailee/Documents/Climate/tmp"
     tmp_path = "/Users/shuailee/Documents/Climate/tmp"
-    out_name = "shaanxi_penman.tif"
+    out_name = "shaanxi_penman_test.tif"
     start_time = "2017-06-01"
     end_time = "2017-06-30"
 
